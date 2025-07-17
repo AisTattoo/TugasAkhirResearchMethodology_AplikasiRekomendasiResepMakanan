@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Rekomendasi Resep</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #4f46e5;
+            --secondary-color: #6b7280;
+            --success-color: #10b981;
+            --background-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --card-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            --border-radius: 12px;
+        }
+
+        body {
+            background: var(--background-gradient);
+            min-height: 100vh;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        .main-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: var(--border-radius);
+            box-shadow: var(--card-shadow);
+            margin: 2rem auto;
+            max-width: 1200px;
+            padding: 2rem;
+        }
+
+        .page-header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .page-title {
+            color: var(--primary-color);
+            font-weight: 700;
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .page-subtitle {
+            color: var(--secondary-color);
+            font-size: 1.1rem;
+            margin-bottom: 0;
+        }
+
+        .form-section {
+            background: white;
+            border-radius: var(--border-radius);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .section-title {
+            color: var(--primary-color);
+            font-weight: 600;
+            font-size: 1.3rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .ingredient-row {
+            background: #f8fafc;
+            border: 2px solid #e2e8f0;
+            border-radius: var(--border-radius);
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .ingredient-row:hover {
+            border-color: var(--primary-color);
+            transform: translateY(-2px);
+        }
+
+        .form-control {
+            border-radius: 8px;
+            border: 2px solid #e2e8f0;
+            padding: 0.75rem 1rem;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .form-control:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+        }
+
+        .form-label {
+            font-weight: 600;
+            color: var(--secondary-color);
+            margin-bottom: 0.5rem;
+        }
+
+        .btn-primary {
+            background: var(--primary-color);
+            border: none;
+            border-radius: 8px;
+            padding: 0.75rem 2rem;
+            font-weight: 600;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(79, 70, 229, 0.2);
+        }
+
+        .btn-primary:hover {
+            background: #3730a3;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(79, 70, 229, 0.3);
+        }
+
+        .btn-secondary {
+            background: white;
+            border: 2px solid var(--primary-color);
+            color: var(--primary-color);
+            border-radius: 8px;
+            padding: 0.75rem 1.5rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .btn-secondary:hover {
+            background: var(--primary-color);
+            color: white;
+            transform: translateY(-2px);
+        }
+
+        .btn-remove {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: #ef4444;
+            border: none;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 0.875rem;
+            transition: all 0.3s ease;
+        }
+
+        .btn-remove:hover {
+            background: #dc2626;
+            transform: scale(1.1);
+        }
+
+        .recipe-card {
+            background: white;
+            border-radius: var(--border-radius);
+            box-shadow: var(--card-shadow);
+            transition: all 0.3s ease;
+            height: 100%;
+            border: 2px solid transparent;
+        }
+
+        .recipe-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.15);
+            border-color: var(--primary-color);
+        }
+
+        .recipe-header {
+            background: linear-gradient(135deg, var(--primary-color), #6366f1);
+            color: white;
+            padding: 1.5rem;
+            border-radius: var(--border-radius) var(--border-radius) 0 0;
+            position: relative;
+        }
+
+        .recipe-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .recipe-portion {
+            font-size: 0.9rem;
+            opacity: 0.9;
+            margin-bottom: 0.5rem;
+        }
+
+        .recipe-scaling-info {
+            display: flex;
+            gap: 10px;
+            margin-top: 0.5rem;
+        }
+
+        .scale-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .scale-exact {
+            background: rgba(16, 185, 129, 0.2);
+            color: #047857;
+        }
+
+        .scale-adjusted {
+            background: rgba(245, 158, 11, 0.2);
+            color: #92400e;
+        }
+
+        .recipe-body {
+            padding: 1.5rem;
+        }
+
+        .ingredient-list {
+            background: #f8fafc;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+            border-left: 4px solid var(--primary-color);
+        }
+
+        .ingredient-list.scaled {
+            border-left-color: #f59e0b;
+            background: #fffbeb;
+        }
+
+        .ingredient-list ul {
+            margin-bottom: 0;
+            padding-left: 1.2rem;
+        }
+
+        .ingredient-list li {
+            margin-bottom: 0.5rem;
+            color: var(--secondary-color);
+        }
+
+        .recipe-steps {
+            background: #fef3c7;
+            border-radius: 8px;
+            padding: 1rem;
+            border-left: 4px solid #f59e0b;
+        }
+
+        .steps-title {
+            font-weight: 600;
+            color: #92400e;
+            margin-bottom: 0.5rem;
+        }
+
+        .no-recipes {
+            text-align: center;
+            padding: 3rem;
+            color: var(--secondary-color);
+        }
+
+        .no-recipes i {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            color: #d1d5db;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f4f6;
+            border-top: 4px solid var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .scaling-note {
+            font-size: 0.85rem;
+            color: #6b7280;
+            font-style: italic;
+            margin-top: 0.5rem;
+        }
+
+        @media (max-width: 768px) {
+            .main-container {
+                margin: 1rem;
+                padding: 1.5rem;
+            }
+            
+            .page-title {
+                font-size: 2rem;
+            }
+            
+            .ingredient-row {
+                padding: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🍳 Recipe Recommendation with Scaling</h1>
+        
+        <form method="POST">
+            <div class="input-section">
+                <h3>Masukkan Bahan yang Anda Miliki:</h3>
+                <div id="ingredients-container">
+                    <div class="ingredient-row">
+                        <input type="text" name="ingredient_name[]" placeholder="Nama bahan (e.g., ayam, bawang)" required>
+                        <input type="number" name="ingredient_qty[]" placeholder="Jumlah (gram)" step="0.01" required>
+                        <button type="button" class="btn" onclick="removeIngredient(this)">Hapus</button>
+                    </div>
+                </div>
+                <button type="button" class="btn" onclick="addIngredient()">+ Tambah Bahan</button>
+                
+                <div class="checkbox-container">
+                    <input type="checkbox" id="show_additional" name="show_additional_recipes">
+                    <label for="show_additional">Tampilkan resep dengan bahan tambahan</label>
+                </div>
+                
+                <button type="submit" class="btn btn-success">Cari Resep</button>
+            </div>
+        </form>
+
+        {% if recommendations %}
+            <div class="section-divider">
+                <h2 class="section-title">🎯 Rekomendasi Resep</h2>
+                
+                {% for recipe in recommendations %}
+                    <div class="recipe-card">
+                        <h3 class="recipe-title">{{ recipe.title }}</h3>
+                        
+                        <div class="recipe-info">
+                            <span class="porsi-info">Porsi dapat dibuat: {{ recipe.porsi }}x</span>
+                            
+                            {% if recipe.scale_factor >= 0.9 and recipe.scale_factor <= 1.1 %}
+                                <span class="scale-exact">Resep Sesuai ({{ recipe.scale_factor }}x)</span>
+                            {% else %}
+                                <span class="scale-info">Resep Disesuaikan ({{ recipe.scale_factor }}x)</span>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="ingredients-section">
+                            <h4>Bahan-bahan:</h4>
+                            {% if recipe.scale_factor >= 0.9 and recipe.scale_factor <= 1.1 %}
+                                <!-- Tampilkan bahan original -->
+                                <div class="ingredients-list">
+                                    {% for ingredient, qty in recipe.original_ingredients.items() %}
+                                        <div class="ingredient-item">
+                                            <strong>{{ ingredient.title() }}</strong>: {{ qty }}g
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            {% else %}
+                                <!-- Tampilkan bahan yang sudah di-scale -->
+                                <div class="ingredients-list">
+                                    {% for ingredient, qty in recipe.scaled_ingredients.items() %}
+                                        <div class="ingredient-item scaled">
+                                            <strong>{{ ingredient.title() }}</strong>: {{ qty }}g
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                                <small style="color: #666;">
+                                    *Bahan sudah disesuaikan dengan rasio {{ recipe.scale_factor }}x dari resep asli
+                                </small>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="steps-section">
+                            <h4>Cara Memasak:</h4>
+                            <div class="steps">{{ recipe.steps }}</div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        {% if additional_recommendations %}
+            <div class="section-divider">
+                <h2 class="section-title">🛒 Resep dengan Bahan Tambahan</h2>
+                
+                {% for recipe in additional_recommendations %}
+                    <div class="recipe-card">
+                        <h3 class="recipe-title">{{ recipe.title }}</h3>
+                        
+                        <div class="ingredients-section">
+                            <h4>Bahan yang perlu ditambahkan:</h4>
+                            <div class="ingredients-list">
+                                {% for ingredient in recipe.missing %}
+                                    <div class="ingredient-item">
+                                        <strong>{{ ingredient.title() }}</strong>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        
+                        <div class="steps-section">
+                            <h4>Cara Memasak:</h4>
+                            <div class="steps">{{ recipe.steps }}</div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        {% if not recommendations and not additional_recommendations %}
+            <div class="no-results">
+                <h3>Tidak ada resep yang ditemukan</h3>
+                <p>Coba masukkan bahan-bahan yang berbeda atau periksa kembali nama bahan yang dimasukkan.</p>
+            </div>
+        {% endif %}
+    </div>
+
+    <script>
+        function addIngredient() {
+            const container = document.getElementById('ingredients-container');
+            const newRow = document.createElement('div');
+            newRow.className = 'ingredient-row';
+            newRow.innerHTML = `
+                <input type="text" name="ingredient_name[]" placeholder="Nama bahan (e.g., ayam, bawang)" required>
+                <input type="number" name="ingredient_qty[]" placeholder="Jumlah (gram)" step="0.01" required>
+                <button type="button" class="btn" onclick="removeIngredient(this)">Hapus</button>
+            `;
+            container.appendChild(newRow);
+        }
+
+        function removeIngredient(button) {
+            const container = document.getElementById('ingredients-container');
+            if (container.children.length > 1) {
+                button.parentElement.remove();
+            }
+        }
+    </script>
+</body>
+</html>
