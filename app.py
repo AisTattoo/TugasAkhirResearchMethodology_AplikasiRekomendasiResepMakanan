@@ -146,12 +146,36 @@ if len(ingredient_columns) > 0:
     knn.fit(X_ingredients)
     print("KNN model trained successfully")
 
-# === FUNGSI REKOMENDASI (SAMA SEPERTI SEBELUMNYA) ===
+# === FUNGSI REKOMENDASI DENGAN SISTEM PRIORITAS BARU ===
+def ingredients_match(user_ing, recipe_ing):
+    """Cek apakah dua bahan cocok (exact match atau substring)"""
+    return (user_ing == recipe_ing or 
+            user_ing in recipe_ing or 
+            recipe_ing in user_ing)
+
+def calculate_gramasi_accuracy(user_input, recipe_parsed, matching_ingredients):
+    """Hitung akurasi gramasi berdasarkan bahan yang cocok"""
+    if not matching_ingredients:
+        return 0.0
+    
+    accuracies = []
+    for user_ing, recipe_ing in matching_ingredients:
+        user_qty = user_input[user_ing]
+        recipe_qty = recipe_parsed[recipe_ing]
+        
+        if recipe_qty > 0:
+            ratio = user_qty / recipe_qty
+            # Semakin dekat dengan 1, semakin akurat
+            accuracy = 1.0 / (1.0 + abs(ratio - 1.0))
+            accuracies.append(accuracy)
+    
+    return sum(accuracies) / len(accuracies) if accuracies else 0.0
+
 def calculate_scaling_factor(user_input, recipe_parsed):
     scaling_factors = []
     for user_ing, user_qty in user_input.items():
         for recipe_ing, recipe_qty in recipe_parsed.items():
-            if user_ing == recipe_ing or user_ing in recipe_ing or recipe_ing in user_ing:
+            if ingredients_match(user_ing, recipe_ing):
                 if recipe_qty > 0:
                     factor = user_qty / recipe_qty
                     scaling_factors.append(factor)
@@ -165,45 +189,91 @@ def scale_recipe_ingredients(recipe_parsed, scale_factor):
         scaled_ingredients[ingredient] = round(qty * scale_factor, 2)
     return scaled_ingredients
 
-def recommend_recipe(user_input, max_difference=50):
-    if knn is None or len(ingredient_columns) == 0:
+def recommend_recipe(user_input, max_recommendations=20):
+    """
+    Sistem rekomendasi dengan prioritas ketat:
+    1. Bahan pertama HARUS ada dalam setiap rekomendasi
+    2. Prioritas 1: Semua bahan cocok (diurutkan berdasarkan gramasi)
+    3. Prioritas 2: Bahan pertama + sebagian bahan lain (diurutkan berdasarkan gramasi)
+    4. Prioritas 3: Hanya bahan pertama (diurutkan berdasarkan gramasi)
+    """
+    if knn is None or len(ingredient_columns) == 0 or not user_input:
         return []
     
-    exact_matches = []
-    scaled_matches = []
+    # Ambil bahan pertama sebagai bahan WAJIB
+    user_ingredients_order = list(user_input.keys())
+    primary_ingredient = user_ingredients_order[0]
+    
+    print(f"DEBUG: Primary ingredient (WAJIB): {primary_ingredient}")
+    print(f"DEBUG: User input order: {user_ingredients_order}")
+    
+    # Cari semua resep yang mengandung bahan pertama
+    primary_recipes = []
     
     user_vector = np.array([user_input.get(i, 0) for i in ingredient_columns]).reshape(1, -1)
     distances, indices = knn.kneighbors(user_vector)
-
+    
     for idx in indices[0]:
         resep = df.iloc[idx]
         recipe_parsed = resep['Parsed']
         
-        matching_ingredients = []
-        for user_ing in user_input.keys():
-            for recipe_ing in recipe_parsed.keys():
-                if user_ing == recipe_ing or user_ing in recipe_ing or recipe_ing in user_ing:
-                    matching_ingredients.append((user_ing, recipe_ing))
+        # CEK WAJIB: Bahan pertama harus ada
+        primary_found = False
+        primary_match_pair = None
         
-        if not matching_ingredients:
+        for recipe_ing in recipe_parsed.keys():
+            if ingredients_match(primary_ingredient, recipe_ing):
+                primary_found = True
+                primary_match_pair = (primary_ingredient, recipe_ing)
+                break
+        
+        # Skip jika bahan pertama tidak ada
+        if not primary_found:
             continue
         
-        scale_factor = calculate_scaling_factor(user_input, recipe_parsed)
+        # Hitung matching ingredients dengan urutan prioritas
+        matching_ingredients = []
+        matched_user_ingredients = set()
         
+        # Prioritas matching berdasarkan urutan input user
+        for user_ing in user_ingredients_order:
+            for recipe_ing in recipe_parsed.keys():
+                if ingredients_match(user_ing, recipe_ing):
+                    if user_ing not in matched_user_ingredients:
+                        matching_ingredients.append((user_ing, recipe_ing))
+                        matched_user_ingredients.add(user_ing)
+                        break
+        
+        # Hitung porsi maksimal yang bisa dibuat
         available_portions = []
         for user_ing, user_qty in user_input.items():
             for recipe_ing, recipe_qty in recipe_parsed.items():
-                if user_ing == recipe_ing or user_ing in recipe_ing or recipe_ing in user_ing:
-                    if recipe_qty > 0:
-                        portion = user_qty / recipe_qty
-                        available_portions.append(portion)
+                if ingredients_match(user_ing, recipe_ing) and recipe_qty > 0:
+                    portion = user_qty / recipe_qty
+                    available_portions.append(portion)
                     break
-
+        
         max_porsi = round(min(available_portions) if available_portions else 0, 2)
         if max_porsi <= 0:
             continue
-
+        
+        # Hitung akurasi gramasi
+        gramasi_accuracy = calculate_gramasi_accuracy(user_input, recipe_parsed, matching_ingredients)
+        
+        # Hitung scaling factor
+        scale_factor = calculate_scaling_factor(user_input, recipe_parsed)
         scaled_ingredients = scale_recipe_ingredients(recipe_parsed, scale_factor)
+        
+        # Tentukan prioritas berdasarkan bahan yang cocok
+        ingredient_match_count = len(matched_user_ingredients)
+        total_user_ingredients = len(user_input)
+        
+        if ingredient_match_count == total_user_ingredients:
+            priority_level = 1  # Semua bahan cocok
+        elif ingredient_match_count > 1:  # Bahan pertama + minimal 1 bahan lain
+            priority_level = 2  # Bahan pertama + sebagian
+        else:  # Hanya bahan pertama
+            priority_level = 3  # Hanya bahan pertama
         
         recipe_data = {
             'title': resep['Title'],
@@ -212,18 +282,86 @@ def recommend_recipe(user_input, max_difference=50):
             'steps': resep.get('Steps', 'No steps available'),
             'porsi': max_porsi,
             'scale_factor': scale_factor,
-            'distance': distances[0][len(exact_matches + scaled_matches)]
+            'distance': distances[0][len(primary_recipes)],
+            'ingredient_match_count': ingredient_match_count,
+            'ingredient_match_ratio': ingredient_match_count / total_user_ingredients,
+            'matching_ingredients': matching_ingredients,
+            'gramasi_accuracy': gramasi_accuracy,
+            'priority_level': priority_level,
+            'primary_ingredient_match': primary_match_pair
         }
         
-        if 0.9 <= scale_factor <= 1.1:
-            exact_matches.append(recipe_data)
-        else:
-            scaled_matches.append(recipe_data)
+        primary_recipes.append(recipe_data)
     
-    exact_matches.sort(key=lambda x: x['porsi'], reverse=True)
-    scaled_matches.sort(key=lambda x: (abs(x['scale_factor'] - 1), -x['porsi']))
+    # Sorting berdasarkan prioritas dan gramasi
+    def sort_key(recipe):
+        return (
+            recipe['priority_level'],           # Prioritas 1-3
+            -recipe['gramasi_accuracy'],        # Gramasi terbaik dulu
+            -recipe['ingredient_match_count'],  # Lebih banyak bahan cocok
+            -recipe['porsi'],                   # Porsi lebih besar
+            recipe['distance']                  # Jarak terdekat
+        )
     
-    return exact_matches + scaled_matches
+    primary_recipes.sort(key=sort_key)
+    
+    # Batasi hasil maksimal
+    final_recommendations = primary_recipes[:max_recommendations]
+    
+    print(f"DEBUG: Found {len(primary_recipes)} recipes with primary ingredient")
+    print(f"DEBUG: Returning {len(final_recommendations)} recommendations")
+    
+    # Debug output untuk 5 teratas
+    for i, rec in enumerate(final_recommendations[:5]):
+        print(f"DEBUG: {i+1}. {rec['title']} - Priority: {rec['priority_level']}, " +
+              f"Gramasi: {rec['gramasi_accuracy']:.3f}, Matches: {rec['ingredient_match_count']}")
+    
+    return final_recommendations
+
+def display_recommendation_debug(user_input, recommendations, top_n=5):
+    """Fungsi untuk debugging rekomendasi"""
+    print(f"\n=== DEBUGGING REKOMENDASI DENGAN PRIORITAS KETAT ===")
+    print(f"Input User: {user_input}")
+    print(f"Urutan prioritas bahan: {list(user_input.keys())}")
+    print(f"Bahan WAJIB (pertama): {list(user_input.keys())[0]}")
+    print(f"Total rekomendasi: {len(recommendations)}")
+    
+    # Hitung distribusi prioritas
+    priority_counts = {}
+    for rec in recommendations:
+        priority = rec['priority_level']
+        priority_counts[priority] = priority_counts.get(priority, 0) + 1
+    
+    print(f"\nDistribusi Prioritas:")
+    priority_names = {1: "Semua bahan cocok", 2: "Bahan pertama + sebagian", 3: "Hanya bahan pertama"}
+    for priority in sorted(priority_counts.keys()):
+        print(f"  Prioritas {priority} ({priority_names[priority]}): {priority_counts[priority]} resep")
+    
+    print(f"\nTop {top_n} Rekomendasi:")
+    current_priority = None
+    
+    for i, rec in enumerate(recommendations[:top_n]):
+        if rec['priority_level'] != current_priority:
+            current_priority = rec['priority_level']
+            print(f"\n--- PRIORITAS {current_priority}: {priority_names[current_priority]} ---")
+        
+        print(f"\n{i+1}. {rec['title']}")
+        print(f"   Bahan cocok: {rec['ingredient_match_count']}/{len(user_input)} ({rec['ingredient_match_ratio']:.2%})")
+        print(f"   Matching ingredients: {rec['matching_ingredients']}")
+        print(f"   Gramasi accuracy: {rec['gramasi_accuracy']:.3f}")
+        print(f"   Porsi maksimal: {rec['porsi']:.2f}")
+        print(f"   Scale factor: {rec['scale_factor']:.2f}")
+        print(f"   Distance: {rec['distance']:.2f}")
+        print(f"   Bahan resep: {list(rec['original_ingredients'].keys())}")
+        
+        # Tampilkan perbandingan kuantitas untuk bahan yang cocok
+        print(f"   Perbandingan kuantitas:")
+        for user_ing, recipe_ing in rec['matching_ingredients']:
+            user_qty = user_input[user_ing]
+            recipe_qty = rec['original_ingredients'][recipe_ing]
+            ratio = user_qty / recipe_qty
+            accuracy = 1.0 / (1.0 + abs(ratio - 1.0))
+            print(f"     {user_ing} ({user_qty}) vs {recipe_ing} ({recipe_qty}) = {ratio:.2f}x (accuracy: {accuracy:.3f})")
 
 # === TESTING FUNCTIONS ===
 class RecipeModelTester:
@@ -231,7 +369,7 @@ class RecipeModelTester:
         self.test_results = {}
     
     def create_test_scenarios(self, n_scenarios=100):
-        """Buat skenario testing"""
+        """Buat skenario testing dengan prioritas bahan"""
         test_scenarios = []
         
         for i in range(n_scenarios):
@@ -240,16 +378,17 @@ class RecipeModelTester:
             target_recipe = df.iloc[recipe_idx]
             recipe_ingredients = target_recipe['Parsed']
             
-            if not recipe_ingredients:
+            if not recipe_ingredients or len(recipe_ingredients) < 2:
                 continue
             
-            # User punya 60-80% bahan dari resep
-            num_ingredients = max(1, int(len(recipe_ingredients) * random.uniform(0.6, 0.8)))
-            available_ingredients = random.sample(list(recipe_ingredients.keys()), num_ingredients)
+            # Pilih 2-4 bahan dengan urutan prioritas
+            available_ingredients = list(recipe_ingredients.keys())
+            num_ingredients = min(random.randint(2, 4), len(available_ingredients))
+            selected_ingredients = random.sample(available_ingredients, num_ingredients)
             
-            # Quantity 80-120% dari yang dibutuhkan
+            # Buat user stock dengan urutan prioritas
             user_stock = {}
-            for ingredient in available_ingredients:
+            for ingredient in selected_ingredients:
                 original_qty = recipe_ingredients[ingredient]
                 user_stock[ingredient] = original_qty * random.uniform(0.8, 1.2)
             
@@ -257,7 +396,8 @@ class RecipeModelTester:
                 'user_stock': user_stock,
                 'target_recipe': target_recipe['Title'],
                 'target_index': recipe_idx,
-                'target_ingredients': recipe_ingredients
+                'target_ingredients': recipe_ingredients,
+                'primary_ingredient': selected_ingredients[0]
             })
         
         return test_scenarios
@@ -276,45 +416,32 @@ class RecipeModelTester:
         return intersection / union if union > 0 else 0.0
     
     def evaluate_recommendations(self, test_scenarios, top_k=5):
-        """
-        Evaluasi menggunakan berbagai metrik:
-        1. Hit Rate - berapa % target recipe masuk top-k
-        2. MRR - posisi rata-rata target recipe dalam ranking
-        3. Precision@k - rata-rata relevansi top-k recommendations
-        4. Recall@k - seberapa baik sistem menemukan resep yang relevan
-        5. Coverage - berapa % total resep yang pernah direkomendasikan
-        """
+        """Evaluasi sistem rekomendasi dengan prioritas ketat"""
         results = {
             'hit_rate': [],
-            'mrr': [],  # Mean Reciprocal Rank
+            'mrr': [],
             'precision_at_k': [],
-            'recall_at_k': [],
-            'ingredient_overlap': [],
-            'portion_accuracy': []
+            'primary_ingredient_coverage': [],  # Apakah bahan pertama selalu ada
+            'priority_distribution': [],
+            'gramasi_accuracy': []
         }
-        
-        recommended_recipes = set()
         
         for scenario in test_scenarios:
             user_stock = scenario['user_stock']
             target_recipe = scenario['target_recipe']
             target_ingredients = scenario['target_ingredients']
+            primary_ingredient = scenario['primary_ingredient']
             
             recommendations = recommend_recipe(user_stock)
             
             if not recommendations:
-                # Jika tidak ada rekomendasi
                 results['hit_rate'].append(0)
                 results['mrr'].append(0)
                 results['precision_at_k'].append(0)
-                results['recall_at_k'].append(0)
-                results['ingredient_overlap'].append(0)
-                results['portion_accuracy'].append(0)
+                results['primary_ingredient_coverage'].append(0)
+                results['priority_distribution'].append(0)
+                results['gramasi_accuracy'].append(0)
                 continue
-            
-            # Track coverage
-            for rec in recommendations[:top_k]:
-                recommended_recipes.add(rec['title'])
             
             # 1. Hit Rate
             top_k_titles = [rec['title'] for rec in recommendations[:top_k]]
@@ -329,7 +456,7 @@ class RecipeModelTester:
                     break
             results['mrr'].append(mrr)
             
-            # 3. Precision@k (berdasarkan ingredient overlap)
+            # 3. Precision@k
             overlaps = []
             for rec in recommendations[:top_k]:
                 overlap = self.calculate_ingredient_overlap(user_stock, rec['original_ingredients'])
@@ -338,82 +465,41 @@ class RecipeModelTester:
             precision = sum(overlaps) / len(overlaps) if overlaps else 0
             results['precision_at_k'].append(precision)
             
-            # 4. Recall@k
-            target_overlap = self.calculate_ingredient_overlap(user_stock, target_ingredients)
-            best_overlap = max(overlaps) if overlaps else 0
-            recall = best_overlap / target_overlap if target_overlap > 0 else 0
-            results['recall_at_k'].append(min(recall, 1.0))
+            # 4. Primary Ingredient Coverage
+            primary_coverage = 1  # Dengan sistem baru, ini selalu 1
+            for rec in recommendations[:top_k]:
+                has_primary = False
+                for user_ing, recipe_ing in rec['matching_ingredients']:
+                    if user_ing == primary_ingredient:
+                        has_primary = True
+                        break
+                if not has_primary:
+                    primary_coverage = 0
+                    break
+            results['primary_ingredient_coverage'].append(primary_coverage)
             
-            # 5. Ingredient Overlap dengan target
-            if target_recipe in top_k_titles:
-                target_idx = top_k_titles.index(target_recipe)
-                target_rec_overlap = overlaps[target_idx]
-            else:
-                target_rec_overlap = 0
-            results['ingredient_overlap'].append(target_rec_overlap)
+            # 5. Priority Distribution
+            priority_scores = []
+            for rec in recommendations[:top_k]:
+                priority_scores.append(4 - rec['priority_level'])  # Inversi agar skor tinggi = prioritas tinggi
             
-            # 6. Portion Accuracy (jika target ditemukan)
-            if target_recipe in top_k_titles:
-                target_idx = top_k_titles.index(target_recipe)
-                predicted_portion = recommendations[target_idx]['porsi']
-                # Hitung expected portion
-                expected_portions = []
-                for user_ing, user_qty in user_stock.items():
-                    if user_ing in target_ingredients and target_ingredients[user_ing] > 0:
-                        expected_portions.append(user_qty / target_ingredients[user_ing])
-                
-                expected_portion = min(expected_portions) if expected_portions else 0
-                if expected_portion > 0:
-                    portion_error = abs(predicted_portion - expected_portion) / expected_portion
-                    portion_accuracy = max(0, 1 - portion_error)
-                else:
-                    portion_accuracy = 0
-            else:
-                portion_accuracy = 0
-            results['portion_accuracy'].append(portion_accuracy)
-        
-        # Hitung coverage
-        total_recipes = len(df)
-        coverage = len(recommended_recipes) / total_recipes
-        results['coverage'] = coverage
+            avg_priority = sum(priority_scores) / len(priority_scores) if priority_scores else 0
+            results['priority_distribution'].append(avg_priority)
+            
+            # 6. Gramasi Accuracy
+            gramasi_scores = []
+            for rec in recommendations[:top_k]:
+                gramasi_scores.append(rec['gramasi_accuracy'])
+            
+            avg_gramasi = sum(gramasi_scores) / len(gramasi_scores) if gramasi_scores else 0
+            results['gramasi_accuracy'].append(avg_gramasi)
         
         return results
     
-    def analyze_by_difficulty(self, test_scenarios):
-        """Analisis berdasarkan tingkat kesulitan (berapa % bahan user punya)"""
-        easy_scenarios = []  # User punya >= 70% bahan
-        medium_scenarios = []  # User punya 50-70% bahan
-        hard_scenarios = []  # User punya < 50% bahan
-        
-        for scenario in test_scenarios:
-            user_ingredients = len(scenario['user_stock'])
-            target_ingredients = len(scenario['target_ingredients'])
-            
-            if target_ingredients == 0:
-                continue
-                
-            coverage_ratio = user_ingredients / target_ingredients
-            
-            if coverage_ratio >= 0.7:
-                easy_scenarios.append(scenario)
-            elif coverage_ratio >= 0.5:
-                medium_scenarios.append(scenario)
-            else:
-                hard_scenarios.append(scenario)
-        
-        results = {}
-        for difficulty, scenarios in [('Easy', easy_scenarios), ('Medium', medium_scenarios), ('Hard', hard_scenarios)]:
-            if scenarios:
-                results[difficulty] = self.evaluate_recommendations(scenarios)
-            else:
-                results[difficulty] = None
-        
-        return results
-    
-    def run_comprehensive_test(self, n_scenarios=200):
-        """Jalankan test komprehensif"""
+    def run_comprehensive_test(self, n_scenarios=100):
+        """Jalankan test komprehensif dengan prioritas ketat"""
         print("=" * 60)
-        print("STARTING COMPREHENSIVE MODEL TESTING")
+        print("TESTING RECIPE RECOMMENDER WITH STRICT PRIORITY SYSTEM")
         print("=" * 60)
         
         print(f"Creating {n_scenarios} test scenarios...")
@@ -426,12 +512,8 @@ class RecipeModelTester:
         print(f"Evaluating {len(test_scenarios)} scenarios...")
         results = self.evaluate_recommendations(test_scenarios)
         
-        print("Analyzing by difficulty...")
-        difficulty_results = self.analyze_by_difficulty(test_scenarios)
-        
         self.test_results = {
             'overall': results,
-            'by_difficulty': difficulty_results,
             'n_scenarios': len(test_scenarios)
         }
         
@@ -443,7 +525,7 @@ class RecipeModelTester:
         results = self.test_results['overall']
         
         print("\n" + "=" * 60)
-        print("OVERALL PERFORMANCE METRICS")
+        print("STRICT PRIORITY SYSTEM PERFORMANCE METRICS")
         print("=" * 60)
         
         print(f"Test Scenarios: {self.test_results['n_scenarios']}")
@@ -460,45 +542,41 @@ class RecipeModelTester:
         print(f"\nPrecision@5: {np.mean(results['precision_at_k']):.3f} ± {np.std(results['precision_at_k']):.3f}")
         print(f"  → Average ingredient overlap in top-5: {np.mean(results['precision_at_k'])*100:.1f}%")
         
-        print(f"\nRecall@5: {np.mean(results['recall_at_k']):.3f} ± {np.std(results['recall_at_k']):.3f}")
-        print(f"  → How well system finds relevant recipes: {np.mean(results['recall_at_k'])*100:.1f}%")
+        print(f"\nPrimary Ingredient Coverage: {np.mean(results['primary_ingredient_coverage']):.3f}")
+        print(f"  → {np.mean(results['primary_ingredient_coverage'])*100:.1f}% of recommendations contain primary ingredient")
         
-        print(f"\nIngredient Overlap: {np.mean(results['ingredient_overlap']):.3f} ± {np.std(results['ingredient_overlap']):.3f}")
-        print(f"  → Average ingredient match with target: {np.mean(results['ingredient_overlap'])*100:.1f}%")
+        print(f"\nPriority Distribution Score: {np.mean(results['priority_distribution']):.3f}")
+        print(f"  → Average priority quality (3=best, 0=worst)")
         
-        print(f"\nPortion Accuracy: {np.mean(results['portion_accuracy']):.3f} ± {np.std(results['portion_accuracy']):.3f}")
-        print(f"  → Portion calculation accuracy: {np.mean(results['portion_accuracy'])*100:.1f}%")
-        
-        print(f"\nCoverage: {results['coverage']:.3f}")
-        print(f"  → {results['coverage']*100:.1f}% of all recipes were recommended")
-        
-        # Difficulty analysis
-        print(f"\nPERFORMANCE BY DIFFICULTY:")
-        for difficulty, diff_results in self.test_results['by_difficulty'].items():
-            if diff_results:
-                print(f"{difficulty}: Hit Rate = {np.mean(diff_results['hit_rate']):.3f}, " +
-                      f"Precision = {np.mean(diff_results['precision_at_k']):.3f}")
+        print(f"\nGramasi Accuracy: {np.mean(results['gramasi_accuracy']):.3f} ± {np.std(results['gramasi_accuracy']):.3f}")
+        print(f"  → Average quantity matching accuracy: {np.mean(results['gramasi_accuracy'])*100:.1f}%")
         
         # Interpretasi hasil
-        print(f"\nINTERPRETATION:")
+        print(f"\nSYSTEM EVALUATION:")
+        primary_coverage = np.mean(results['primary_ingredient_coverage'])
         hit_rate = np.mean(results['hit_rate'])
-        precision = np.mean(results['precision_at_k'])
+        gramasi_accuracy = np.mean(results['gramasi_accuracy'])
         
-        if hit_rate >= 0.7:
-            print("✅ EXCELLENT: Model very good at finding target recipes")
-        elif hit_rate >= 0.5:
-            print("✅ GOOD: Model reasonably good at finding target recipes")
-        elif hit_rate >= 0.3:
-            print("⚠️  FAIR: Model has moderate performance")
+        if primary_coverage >= 0.95:
+            print("✅ EXCELLENT: Primary ingredient constraint strictly enforced")
+        elif primary_coverage >= 0.85:
+            print("✅ GOOD: Primary ingredient mostly preserved")
         else:
-            print("❌ POOR: Model needs significant improvement")
+            print("❌ POOR: Primary ingredient constraint violated")
         
-        if precision >= 0.6:
-            print("✅ High ingredient relevance in recommendations")
-        elif precision >= 0.4:
-            print("⚠️  Moderate ingredient relevance")
+        if hit_rate >= 0.6:
+            print("✅ EXCELLENT: Very good at finding target recipes")
+        elif hit_rate >= 0.4:
+            print("✅ GOOD: Good performance on target finding")
         else:
-            print("❌ Low ingredient relevance - many irrelevant recommendations")
+            print("⚠️  FAIR: Moderate performance on target finding")
+        
+        if gramasi_accuracy >= 0.7:
+            print("✅ EXCELLENT: High quantity matching accuracy")
+        elif gramasi_accuracy >= 0.5:
+            print("✅ GOOD: Moderate quantity matching")
+        else:
+            print("❌ POOR: Low quantity matching accuracy")
 
 # === FLASK ROUTES ===
 @app.route('/', methods=['GET', 'POST'])
@@ -519,8 +597,10 @@ def index():
         
         if user_stock:
             recommendations = recommend_recipe(user_stock)
+            # Debug output
+            display_recommendation_debug(user_stock, recommendations)
     
-    return render_template('index.html', recommendations=recommendations)
+    return render_template('coba.html', recommendations=recommendations)
 
 @app.route('/test')
 def test_model():
@@ -535,9 +615,9 @@ if __name__ == '__main__':
     print("Training model...")
     
     # Jalankan test otomatis saat startup
-    print("\nRunning automatic model test...")
+    print("\nRunning automatic strict priority system test...")
     tester = RecipeModelTester()
-    tester.run_comprehensive_test(n_scenarios=50)  # Test dengan 50 scenarios
+    tester.run_comprehensive_test(n_scenarios=50)
     
     print("\nStarting Flask server...")
     print("Visit /test for detailed testing results")

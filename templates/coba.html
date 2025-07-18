@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recipe Recommender</title>
+    <link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🍳 Recipe Recommender</h1>
+            <p>Masukkan bahan yang Anda miliki untuk mendapatkan rekomendasi resep</p>
+        </div>
+
+        <form method="POST" class="ingredient-form">
+            <!-- Bahan Utama -->
+            <div class="ingredient-section">
+                <h3>🥩 Bahan Utama (Wajib)</h3>
+                <p class="section-description">Bahan utama ini harus ada dalam setiap rekomendasi resep</p>
+                
+                <div class="ingredient-group main-ingredient">
+                    <div class="ingredient-row">
+                        <input type="text" name="ingredient_name[]" placeholder="Contoh: ayam, daging, ikan" 
+                               class="ingredient-name main-ingredient-input" required>
+                        <input type="number" name="ingredient_qty[]" placeholder="Jumlah (gram)" 
+                               class="ingredient-qty" step="0.01" required>
+                        <span class="ingredient-unit">gram</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bahan Pelengkap -->
+            <div class="ingredient-section">
+                <h3>🧅 Bahan Pelengkap (Opsional)</h3>
+                <p class="section-description">Bahan tambahan yang akan meningkatkan akurasi rekomendasi</p>
+                
+                <div class="ingredient-group additional-ingredients">
+                    <div class="ingredient-row">
+                        <input type="text" name="ingredient_name[]" placeholder="Contoh: bawang, garam, cabai" 
+                               class="ingredient-name">
+                        <input type="number" name="ingredient_qty[]" placeholder="Jumlah (gram)" 
+                               class="ingredient-qty" step="0.01">
+                        <span class="ingredient-unit">gram</span>
+                        <button type="button" class="remove-btn" onclick="removeIngredient(this)">✕</button>
+                    </div>
+                </div>
+                
+                <button type="button" class="add-ingredient-btn" onclick="addIngredient()">
+                    + Tambah Bahan Pelengkap
+                </button>
+            </div>
+
+            <button type="submit" class="submit-btn">
+                <span>🔍 Cari Resep</span>
+            </button>
+        </form>
+
+        {% if recommendations %}
+        <div class="results-section">
+            <h2>📋 Rekomendasi Resep</h2>
+            <div class="priority-info">
+                <div class="priority-legend">
+                    <div class="legend-item">
+                        <span class="priority-badge priority-1">1</span>
+                        <span>Semua bahan cocok</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="priority-badge priority-2">2</span>
+                        <span>Bahan utama + sebagian pelengkap</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="priority-badge priority-3">3</span>
+                        <span>Hanya bahan utama</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="recipe-grid">
+                {% for recipe in recommendations %}
+                <div class="recipe-card priority-{{ recipe.priority_level }}">
+                    <div class="recipe-header">
+                        <h3>{{ recipe.title }}</h3>
+                        <div class="recipe-meta">
+                            <span class="priority-badge priority-{{ recipe.priority_level }}">
+                                {{ recipe.priority_level }}
+                            </span>
+                            <span class="portion-info">{{ recipe.porsi }} porsi</span>
+                        </div>
+                    </div>
+
+                    <div class="recipe-body">
+                        <div class="ingredient-match">
+                            <h4>✅ Bahan yang Cocok ({{ recipe.ingredient_match_count }})</h4>
+                            <div class="matched-ingredients">
+                                {% for user_ing, recipe_ing in recipe.matching_ingredients %}
+                                <div class="ingredient-match-item">
+                                    <span class="user-ingredient">{{ user_ing }}</span>
+                                    <span class="arrow">→</span>
+                                    <span class="recipe-ingredient">{{ recipe_ing }}</span>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+
+                        <div class="recipe-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">Akurasi Gramasi:</span>
+                                <span class="stat-value">{{ "%.1f"|format(recipe.gramasi_accuracy * 100) }}%</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Scaling Factor:</span>
+                                <span class="stat-value">{{ "%.2f"|format(recipe.scale_factor) }}x</span>
+                            </div>
+                        </div>
+
+                        <div class="ingredients-section">
+                            <h4>📝 Bahan yang Dibutuhkan</h4>
+                            <div class="ingredients-list">
+                                {% for ingredient, qty in recipe.scaled_ingredients.items() %}
+                                <div class="ingredient-item">
+                                    <span class="ingredient-name">{{ ingredient }}</span>
+                                    <span class="ingredient-amount">{{ "%.1f"|format(qty) }}g</span>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+
+                        <div class="steps-section">
+                            <h4>👨‍🍳 Langkah Memasak</h4>
+                            <div class="steps-content">
+                                {{ recipe.steps }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <script src="static/script.js"></script>
+</body>
+</html>
